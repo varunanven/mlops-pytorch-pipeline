@@ -17,6 +17,8 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: setup google cloud sdk
         uses: google-github-actions/setup-gcloud@v3
@@ -24,8 +26,7 @@ jobs:
       - name: provision instance
         run: |
           if gcloud compute instances describe "ga-instance" --zone=us-central1-b > /dev/null 2>&1; then
-            echo "Instance already exists! Initializing boot sequence..."
-            gcloud compute instances start "ga-instance" --zone=us-central1-b
+            echo "Instance already exists!"
           else
             echo "Instance not found. Creating a fresh hardware container from template..."
             gcloud compute instances create "ga-instance" \
