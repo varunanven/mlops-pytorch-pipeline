@@ -40,7 +40,7 @@ jobs:
           path: model.pth
 
   cleanup:
-    needs: [ga-spot-instance, training]
+    needs: [setup, training]
     runs-on: ubuntu-latest
     steps:
       - name: shutdown instance
