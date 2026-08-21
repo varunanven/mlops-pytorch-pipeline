@@ -23,10 +23,10 @@ jobs:
 
       - name: provision instance
         run: |
-          gcloud compute instances create ga-runner-{{ github.run_id }} \
-          --zone=us-central1-a \
-          --source-instance-template=ga-gpu-spot-template \
-          --metadata=startup-script="mkdir actions-runner && cd actions-runner && curl -o actions-runner-linux-x64-2.331.0.tar.gz -L https://github.com && tar xzf ./actions-runner-linux-x64-2.331.0.tar.gz && ./config.sh --url https://github.com{{ github.repository }} --token ${{ secrets.PERSONAL_ACCESS_TOKEN }} --labels ga-spot-instance --unattended && ./run.sh"
+          gcloud compute instances create "ga-runner-${{ github.run_id }}" \
+            --zone=us-central1-a \
+            --source-instance-template=ga-gpu-spot-template \
+            --metadata=startup-script="mkdir actions-runner && cd actions-runner && curl -o actions-runner-linux-x64-2.331.0.tar.gz -L https://github.com && tar xzf ./actions-runner-linux-x64-2.331.0.tar.gz && ./config.sh --url https://github.com{{ github.repository }} --token ${{ secrets.PERSONAL_ACCESS_TOKEN }} --labels ga-spot-instance --unattended && ./run.sh"
 
   training:
     needs: setup
