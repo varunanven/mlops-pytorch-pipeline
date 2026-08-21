@@ -26,7 +26,9 @@ jobs:
       - name: provision instance
         run: |
           if gcloud compute instances describe "ga-instance" --zone=us-central1-b > /dev/null 2>&1; then
-            echo "Instance already exists!"
+            echo "Instance already exists! Initializing boot sequence..."
+            gcloud compute instances start "ga-instance" --zone=us-central1-b
+
           else
             echo "Instance not found. Creating a fresh hardware container from template..."
             gcloud compute instances create "ga-instance" \
