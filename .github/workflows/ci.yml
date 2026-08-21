@@ -1,0 +1,48 @@
+name: MLOPS Pipeline
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: repo checkout
+        uses: actions/checkout@v4
+
+      - name: authenticate gcp
+        uses: google-github-actions/auth@v2
+        with:
+          credentials-json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: provision instance
+        uses: google-github-actions/deploy-compute@v0
+        with:
+          instance: ga-runner-{{ github.run_id }}
+          zone: us-central1-a
+          source_instance_template: ga-gpu-spot-template
+          metadata: startup-script="echo 'Installing Runner...' && mkdir actions-runner && cd actions-runner && curl -o actions-runner-linux-x64-2.331.0.tar.gz -L https://github.com && tar xzf ./actions-runner-linux-x64-2.331.0.tar.gz && ./config.sh --url https://github.com --token ${{ secrets.PERSONAL_ACCESS_TOKEN }} --labels ga-spot-instance --unattended && ./run.sh"
+
+  training:
+    needs: setup
+    runs-on: [self-hosted, ga-spot-instance]
+    steps:
+      - name: execute model train
+        run: python3 train.py
+
+      - name: set checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: l4-spot-weights
+          path: model.pth
+
+  cleanup:
+    needs: [ga-spot-instance, training]
+    runs-on: ubuntu-latest
+    steps:
+      - name: shutdown instance
+        run: |
+          gcloud compute instances delete ga-runner-{{ github.run_id }} --zone=us-central1-a --quiet
