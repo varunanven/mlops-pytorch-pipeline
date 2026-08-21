@@ -18,9 +18,11 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
-      - name: provision instance
+      - name: setup google cloud sdk
         uses: google-github-actions/setup-gcloud@v3
-        with:
+
+      - name: provision instance
+        run: |
           gcloud compute instances create ga-runner-{{ github.run_id }} \
           --zone=us-central1-a \
           --source-instance-template=ga-gpu-spot-template \
