@@ -25,13 +25,13 @@ jobs:
 
       - name: provision instance
         run: |
-          if gcloud compute instances describe "ga-instance" --zone=us-central1-f > /dev/null 2>&1; then
+          if gcloud compute instances describe "ga-instance" --zone=us-central1-b > /dev/null 2>&1; then
             echo "Instance already exists!"
-            gcloud compute instances start "ga-instance" --zone=us-central1-f
+            gcloud compute instances start "ga-instance" --zone=us-central1-b
           else
             echo "Instance not found. Creating a new instance..."
             gcloud compute instances create "ga-instance" \
-              --zone=us-central1-f \
+              --zone=us-central1-b \
               --source-instance-template=ga-gpu-spot-instance-template \
               --metadata=block-project-ssh-keys=TRUE,enable-oslogin=FALSE,startup-script="mkdir actions-runner && cd actions-runner && curl -o actions-runner-linux-x64-2.331.0.tar.gz -L https://github.com && tar xzf ./actions-runner-linux-x64-2.331.0.tar.gz && ./config.sh --url https://github.com/varunanven/mlops-pytorch-pipeline --token ${{ secrets.PERSONAL_ACCESS_TOKEN }} --labels ga-spot-instance --unattended && ./run.sh"
           fi
