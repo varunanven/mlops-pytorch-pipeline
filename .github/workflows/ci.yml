@@ -36,7 +36,18 @@ jobs:
           gcloud compute instances create "$INSTANCE" \
             --zone="$ZONE" \
             --source-instance-template=ga-gpu-spot-instance-template \
-            --metadata=startup-script="su ubuntu -c 'mkdir -p ~/actions-runner && cd ~/actions-runner && curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf runner.tgz && ./config.sh --url https://github.com/${{ github.repository }} --token $TOKEN --labels $LABEL --unattended --replace --ephemeral && ./run.sh'"
+            --metadata=startup-script="#!/usr/bin/env bash
+          set -euo pipefail
+
+          if ! command -v docker >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y docker.io
+          fi
+
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+
+          su - ubuntu -c 'mkdir -p ~/actions-runner && cd ~/actions-runner && curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf runner.tgz && ./config.sh --url https://github.com/${{ github.repository }} --token $TOKEN --labels $LABEL --unattended --replace --ephemeral && ./run.sh'"
 
   training:
     needs: setup
