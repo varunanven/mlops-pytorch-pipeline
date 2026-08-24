@@ -71,7 +71,7 @@ def main():
     
     model = get_model(
         architecture=config["model"]["architecture"],
-        num_classes=config["model"]["num_classes"],
+        num_classes=config["data"]["num_classes"],
     ).to(device)
     
     train_loader, val_loader = get_dataloaders(
