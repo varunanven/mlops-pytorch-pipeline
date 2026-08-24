@@ -5,52 +5,63 @@ on:
     branches:
       - develop
 
+env:
+  ZONE: us-central1-b
+  INSTANCE: ga-runner-${{ github.run_id }}
+  LABEL: ga-spot-${{ github.run_id }}
+
 jobs:
   setup:
     runs-on: ubuntu-latest
-
     steps:
-      - name: repo checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: authenticate gcp
-        uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-          create_credentials_file: true
-          export_environment_variables: true
 
-      - name: setup google cloud sdk
-        uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@v3
 
-      - name: provision instance
+      - name: provision gpu runner
         run: |
-          echo "Instance not found. Creating a new instance..."
-          gcloud compute instances create "ga-instance" \
-            --zone=us-central1-b \
+          set -e
+
+          TOKEN=$(curl -sX POST \
+            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token \
+            | jq -r .token)
+          test "$TOKEN" != null
+
+          gcloud compute instances create "$INSTANCE" \
+            --zone="$ZONE" \
             --source-instance-template=ga-gpu-spot-instance-template \
-            --metadata=startup-script="su ubuntu -c 'mkdir -p /home/ubuntu/actions-runner && cd /home/ubuntu/actions-runner && curl -o actions-runner-linux-x64-2.336.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf ./actions-runner-linux-x64-2.336.0.tar.gz && ./config.sh --url https://github.com/varunanven/mlops-pytorch-pipeline --token ${{ secrets.PERSONAL_ACCESS_TOKEN }} --labels ga-spot-instance --unattended --replace && ./run.sh'"
+            --metadata=startup-script="su ubuntu -c 'mkdir -p ~/actions-runner && cd ~/actions-runner && curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf runner.tgz && ./config.sh --url https://github.com/${{ github.repository }} --token $TOKEN --labels $LABEL --unattended --replace --ephemeral && ./run.sh'"
 
   training:
     needs: setup
-    runs-on: [self-hosted, ga-spot-instance]
+    runs-on: [self-hosted, "ga-spot-${{ github.run_id }}"]
     steps:
-      - name: repo checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: execute model train
+      - name: train model
         run: python3 train.py
 
-      - name: set checkpoint
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: l4-spot-weights
           path: model.pth
 
   cleanup:
     needs: [setup, training]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: shutdown instance
-        run: |
-          gcloud compute instances delete ga-runner-{{ github.run_id }} --zone=us-central1-a --quiet
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: delete gpu runner
+        run: gcloud compute instances delete "$INSTANCE" --zone="$ZONE" --quiet || true
