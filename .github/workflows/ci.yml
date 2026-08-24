@@ -45,7 +45,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: train model
-        run: python3 train.py
+        run: |
+          docker build -f Dockerfile.train -t mlops-train .
+          docker create --name mlops-train-run mlops-train
+          docker start -a mlops-train-run
+          docker cp mlops-train-run:/app/model.pth model.pth
+          docker rm mlops-train-run
 
       - uses: actions/upload-artifact@v4
         with:
