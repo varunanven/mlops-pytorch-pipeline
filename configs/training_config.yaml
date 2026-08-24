@@ -13,4 +13,4 @@ training:
 
 output:
   checkpoint_dir: './checkpoints'
-  model_name: 'cifar10_model'
+  model_name: 'cifar10_model.pt'
