@@ -60,7 +60,7 @@ jobs:
           docker build -f docker/Dockerfile.train -t mlops-train .
           docker create --name mlops-train-run mlops-train
           docker start -a mlops-train-run
-          docker cp mlops-train-run:/app/model.pth model.pth
+          docker cp mlops-train-run:/checkpoints/cifar10_model.pt cifar10_model.pt
           docker rm mlops-train-run
 
       - uses: actions/upload-artifact@v4
