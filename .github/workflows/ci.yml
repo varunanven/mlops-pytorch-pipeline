@@ -57,7 +57,7 @@ jobs:
 
       - name: train model
         run: |
-          docker build -f Dockerfile.train -t mlops-train .
+          docker build -f docker/Dockerfile.train -t mlops-train .
           docker create --name mlops-train-run mlops-train
           docker start -a mlops-train-run
           docker cp mlops-train-run:/app/model.pth model.pth
