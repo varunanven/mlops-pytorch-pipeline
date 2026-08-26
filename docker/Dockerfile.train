@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r train.txt
 COPY src/ /app/src/
 COPY configs/ /app/configs/
 
-ENTRYPOINT ["python", "/app/src/train.py"]
+ENTRYPOINT ['python', '/app/src/train.py']
