@@ -8,7 +8,7 @@ COPY requirements/serve.txt .
 RUN pip install --no-cache-dir -r serve.txt
 
 COPY src/ /app/src/
-COPY ./checkpoints/cifar10_model.pt /app/cifar10_model.pt
+COPY ./cifar10_model.pt /app/cifar10_model.pt
 COPY configs/ /app/configs/
 
 EXPOSE 8080
