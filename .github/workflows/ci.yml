@@ -6,7 +6,7 @@ on:
       - develop
 
 env:
-  ZONE: us-central1-b
+  ZONE: us-central1-a
   INSTANCE: ga-runner-${{ github.run_id }}
   LABEL: ga-spot-${{ github.run_id }}
 
