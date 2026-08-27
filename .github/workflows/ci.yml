@@ -33,7 +33,16 @@ jobs:
             | jq -r .token)
           test "$TOKEN" != null
 
-          gcloud compute ssh "$INSTANCE" --zone="$ZONE" --command='
+          # Export variables to the environment
+          export GG_TOKEN="$TOKEN"
+          export GG_LABEL="$LABEL"
+          export GG_REPO="https://github.com{{ github.repository }}"
+
+          # Use --send-env-as-ssh-info to pass local environment variables through gcloud SSH safely
+          gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --send-env-as-ssh-info \
+            --command='
           set -euo pipefail
 
           # 1. Install Docker if missing
@@ -56,32 +65,34 @@ jobs:
 
           # 4. Configure and run GitHub Actions Runner as the ubuntu user
           echo "Setting up GitHub Actions Runner..."
-          sudo su - ubuntu -c "
+          
+          # Pass the variables into the sudo environment cleanly using -E
+          sudo -E su -p - ubuntu -c "
               set -euo pipefail
               mkdir -p ~/actions-runner && cd ~/actions-runner
               
-              # Download runner package if not present (Fixed incomplete URL)
+              # Download runner package if not present
               if [ ! -f runner.tgz ]; then
                   curl -L -o runner.tgz https://github.com
                   tar xzf runner.tgz
               fi
 
-              # FIX: Explicitly install lsb-release & libicu packages first 
+              # Explicitly install lsb-release & libicu packages first 
               echo ''Pre-installing lsb-release and libicu to prevent dependency failures...''
               sudo apt-get update
               sudo apt-get install -y lsb-release libicu-dev
 
-              # Run the official dependency installer (will now pass safely)
+              # Run the official dependency installer
               echo ''Running internal dependency installer...''
               sudo ./bin/installdependencies.sh
 
-              # Configure the runner
-              ./config.sh --url https://github.com'"${{ github.repository }}"' \
-                          --token "'"$TOKEN"'" \
-                          --labels "'"$LABEL"'" \
+              # Configure the runner using the safely carried environment variables
+              ./config.sh --url \"\$GG_REPO\" \
+                          --token \"\$GG_TOKEN\" \
+                          --labels \"\$GG_LABEL\" \
                           --unattended --replace --ephemeral
 
-              # Start runner safely in the background (Fixed inner quotes wrapper)
+              # Start runner safely in the background
               echo ''Starting runner in background...''
               nohup ./run.sh > runner.log 2>&1 &
               sleep 2
