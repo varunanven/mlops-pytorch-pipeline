@@ -27,6 +27,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Checking instance: $INSTANCE"
+
           STATUS=$(gcloud compute instances describe "$INSTANCE" \
             --zone="$ZONE" \
             --format='value(status)')
@@ -38,23 +40,9 @@ jobs:
             exit 1
           fi
 
-      - name: Get GitHub runner registration token
-        id: runner-token
-        run: |
-          set -euo pipefail
+          echo "Existing GPU instance is running."
 
-          TOKEN=$(curl -fsSL -X POST \
-            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token \
-            | jq -r .token)
-
-          test -n "$TOKEN"
-          test "$TOKEN" != "null"
-
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: Configure existing VM as GitHub Actions runner
+      - name: Prepare GitHub Actions runner
         run: |
           set -euo pipefail
 
@@ -63,33 +51,115 @@ jobs:
             --command="
               set -euo pipefail
 
+              RUNNER_DIR=/home/ubuntu/actions-runner
+
+              echo 'Preparing runner directory...'
+
+              sudo mkdir -p \$RUNNER_DIR
+
+              # Fix ownership in case the directory/files were previously
+              # created by root.
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+              sudo chmod -R u+rwX \$RUNNER_DIR
+
+              # Install Docker if it is not already installed.
               if ! command -v docker >/dev/null 2>&1; then
+                echo 'Installing Docker...'
+
                 sudo apt-get update
                 sudo apt-get install -y docker.io
               fi
 
               sudo systemctl enable --now docker
 
-              sudo usermod -aG docker ubuntu || true
+              # Make sure ubuntu can use Docker without sudo.
+              sudo usermod -aG docker ubuntu
 
-              sudo -u ubuntu mkdir -p /home/ubuntu/actions-runner
-              cd /home/ubuntu/actions-runner
+              # Ensure runner files belong to ubuntu.
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+              sudo chmod -R u+rwX \$RUNNER_DIR
 
+              echo 'Runner directory prepared.'
+            "
+
+      - name: Get GitHub Actions runner registration token
+        id: runner-token
+        run: |
+          set -euo pipefail
+
+          TOKEN=$(curl -fsSL -X POST \
+            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token \
+            | jq -r '.token')
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "ERROR: Failed to obtain GitHub runner registration token."
+            exit 1
+          fi
+
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Install or configure GitHub Actions runner
+        env:
+          RUNNER_TOKEN: ${{ steps.runner-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --command="
+              set -euo pipefail
+
+              RUNNER_DIR=/home/ubuntu/actions-runner
+
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+              sudo chmod -R u+rwX \$RUNNER_DIR
+
+              cd \$RUNNER_DIR
+
+              # Download the runner if it does not exist.
               if [ ! -f ./run.sh ]; then
-                curl -L -o runner.tgz \
+                echo 'Downloading GitHub Actions runner...'
+
+                sudo -u ubuntu curl -L \
+                  -o runner.tgz \
                   https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
 
-                tar xzf runner.tgz
-                rm -f runner.tgz
+                sudo -u ubuntu tar xzf runner.tgz
+                sudo -u ubuntu rm -f runner.tgz
               fi
 
-              ./config.sh \
+              # Remove old runner configuration if present.
+              if [ -f .runner ]; then
+                echo 'Removing previous runner configuration...'
+
+                sudo -u ubuntu ./config.sh remove \
+                  --token '$RUNNER_TOKEN' \
+                  || true
+
+                sudo rm -f .runner
+                sudo rm -f .credentials
+                sudo rm -f .credentials_rsaparams
+              fi
+
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+              sudo chmod -R u+rwX \$RUNNER_DIR
+
+              echo 'Configuring GitHub Actions runner...'
+
+              sudo -u ubuntu ./config.sh \
                 --url https://github.com/${{ github.repository }} \
-                --token '${{ steps.runner-token.outputs.token }}' \
+                --token '$RUNNER_TOKEN' \
+                --name '$INSTANCE' \
                 --labels '${{ env.RUNNER_LABEL }}' \
+                --work '_work' \
                 --unattended \
-                --replace \
-                --ephemeral
+                --replace
+
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+
+              echo 'GitHub Actions runner configured.'
             "
 
       - name: Start GitHub Actions runner
@@ -99,23 +169,65 @@ jobs:
           gcloud compute ssh "$INSTANCE" \
             --zone="$ZONE" \
             --command="
-              cd /home/ubuntu/actions-runner
-              sudo -u ubuntu ./run.sh
+              set -euo pipefail
+
+              RUNNER_DIR=/home/ubuntu/actions-runner
+
+              cd \$RUNNER_DIR
+
+              sudo chown -R ubuntu:ubuntu \$RUNNER_DIR
+              sudo chmod -R u+rwX \$RUNNER_DIR
+
+              # Stop an old runner process if one is running.
+              sudo pkill -f '/home/ubuntu/actions-runner/bin/Runner.Listener' \
+                || true
+
+              # Start the runner as ubuntu in the background.
+              sudo -u ubuntu nohup ./run.sh \
+                > /home/ubuntu/actions-runner/runner.log 2>&1 &
+
+              sleep 5
+
+              if pgrep -f '/home/ubuntu/actions-runner/bin/Runner.Listener' >/dev/null; then
+                echo 'GitHub Actions runner is running.'
+              else
+                echo 'ERROR: GitHub Actions runner failed to start.'
+                cat /home/ubuntu/actions-runner/runner.log || true
+                exit 1
+              fi
             "
 
   training:
     needs: setup
 
-    runs-on: [self-hosted, ga-gpu-runner]
+    runs-on:
+      - self-hosted
+      - ga-gpu-runner
 
     steps:
       - uses: actions/checkout@v5
 
+      - name: Check GPU
+        run: |
+          set -euo pipefail
+
+          echo "Checking GPU..."
+
+          if command -v nvidia-smi >/dev/null 2>&1; then
+            nvidia-smi
+          else
+            echo "WARNING: nvidia-smi not found."
+          fi
+
       - name: Train model
         run: |
+          set -euo pipefail
+
           docker build \
             -f docker/Dockerfile.train \
             -t mlops-train .
+
+          docker rm -f mlops-train-run 2>/dev/null || true
 
           docker create \
             --name mlops-train-run \
@@ -129,17 +241,29 @@ jobs:
 
           docker rm mlops-train-run
 
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cifar10-model
+          path: cifar10_model.pt
+
       - name: Serve model
         run: |
+          set -euo pipefail
+
           docker build \
             -f docker/Dockerfile.serve \
             -t mlops-serve .
+
+          docker rm -f mlops-serve-run 2>/dev/null || true
 
           docker create \
             --name mlops-serve-run \
             mlops-serve
 
           docker start -a mlops-serve-run
+
+          docker rm mlops-serve-run
 
 
   # cleanup:
