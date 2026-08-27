@@ -33,18 +33,50 @@ jobs:
             | jq -r .token)
           test "$TOKEN" != null
 
-          gcloud compute instances start "$INSTANCE" --zone="$ZONE"
+          gcloud compute ssh "$INSTANCE" --zone="$ZONE" --command='
           set -euo pipefail
 
+          # 1. Install Docker if missing (using sudo)
           if ! command -v docker >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y docker.io
+              echo "Installing Docker..."
+              sudo apt-get update
+              sudo apt-get install -y docker.io
           fi
 
-          systemctl enable --now docker
-          usermod -aG docker ubuntu
+          # 2. Fix interactive auth by unmasking and using sudo
+          echo "Starting Docker service..."
+          sudo systemctl unmask docker.service
+          sudo systemctl unmask docker.socket
+          sudo systemctl enable --now docker.service
 
-          su - ubuntu -c 'mkdir -p ~/actions-runner && cd ~/actions-runner && curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf runner.tgz && ./config.sh --url https://github.com/${{ github.repository }} --token $TOKEN --labels $LABEL --unattended --replace --ephemeral && ./run.sh'"
+          # 3. Add ubuntu user to docker group if it exists
+          if id "ubuntu" &>/dev/null; then
+              sudo usermod -aG docker ubuntu
+          fi
+
+          # 4. Configure and run GitHub Actions Runner as the ubuntu user
+          echo "Setting up GitHub Actions Runner..."
+          sudo su - ubuntu -c "
+              set -euo pipefail
+              mkdir -p ~/actions-runner && cd ~/actions-runner
+              
+              # Download runner package if not present
+              if [ ! -f runner.tgz ]; then
+                  curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
+                  tar xzf runner.tgz
+              fi
+
+              # Configure the runner (Variables like \$TOKEN and \$LABEL must be passed or replaced)
+              ./config.sh --url https://github.com/'"${{ github.repository }}"' \
+                          --token "'"$TOKEN"'" \
+                          --labels "'"$LABEL"'" \
+                          --unattended --replace --ephemeral
+
+              # Start runner in the background so the CI script can successfully exit
+              echo \"Starting runner in background...\"
+              nohup ./run.sh > runner.log 2>&1 &
+            "
+          '
 
   training:
     needs: setup
