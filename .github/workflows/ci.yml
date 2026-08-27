@@ -36,20 +36,20 @@ jobs:
           gcloud compute ssh "$INSTANCE" --zone="$ZONE" --command='
           set -euo pipefail
 
-          # 1. Install Docker if missing (using sudo)
+          # 1. Install Docker if missing
           if ! command -v docker >/dev/null 2>&1; then
               echo "Installing Docker..."
               sudo apt-get update
               sudo apt-get install -y docker.io
           fi
 
-          # 2. Fix interactive auth by unmasking and using sudo
+          # 2. Fix interactive auth by using explicit sudo
           echo "Starting Docker service..."
           sudo systemctl unmask docker.service
           sudo systemctl unmask docker.socket
           sudo systemctl enable --now docker.service
 
-          # 3. Add ubuntu user to docker group if it exists
+          # 3. Add ubuntu user to docker group
           if id "ubuntu" &>/dev/null; then
               sudo usermod -aG docker ubuntu
           fi
@@ -62,21 +62,32 @@ jobs:
               
               # Download runner package if not present
               if [ ! -f runner.tgz ]; then
-                  curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
+                  curl -L -o runner.tgz https://github.com
                   tar xzf runner.tgz
               fi
 
-              # Configure the runner (Variables like \$TOKEN and \$LABEL must be passed or replaced)
+              # FIX: Explicitly install lsb-release & libicu packages first 
+              # This keeps the automation from throwing "exit code 1"
+              echo \"Pre-installing lsb-release and libicu to prevent dependency failures...\"
+              sudo apt-get update
+              sudo apt-get install -y lsb-release libicu-dev
+
+              # Run the official dependency installer (will now pass safely)
+              echo \"Running internal dependency installer...\"
+              sudo ./bin/installdependencies.sh
+
+              # Configure the runner
               ./config.sh --url https://github.com/'"${{ github.repository }}"' \
                           --token "'"$TOKEN"'" \
                           --labels "'"$LABEL"'" \
                           --unattended --replace --ephemeral
 
-              # Start runner in the background so the CI script can successfully exit
+              # Start runner safely in the background
               echo \"Starting runner in background...\"
               nohup ./run.sh > runner.log 2>&1 &
             "
           '
+
 
   training:
     needs: setup
