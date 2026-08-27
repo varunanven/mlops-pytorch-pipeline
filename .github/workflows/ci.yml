@@ -6,8 +6,8 @@ on:
       - develop
 
 env:
-  ZONE: us-central1-b
-  INSTANCE: ga-runner-${{ github.run_id }}
+  ZONE: us-central1-a
+  INSTANCE: train-instance-2
   LABEL: ga-spot-${{ github.run_id }}
 
 jobs:
@@ -33,10 +33,7 @@ jobs:
             | jq -r .token)
           test "$TOKEN" != null
 
-          gcloud compute instances create "$INSTANCE" \
-            --zone="$ZONE" \
-            --source-instance-template=ga-gpu-spot-instance-template \
-            --metadata=startup-script="#!/usr/bin/env bash
+          gcloud compute instances start "$INSTANCE" --zone="$ZONE"
           set -euo pipefail
 
           if ! command -v docker >/dev/null 2>&1; then
