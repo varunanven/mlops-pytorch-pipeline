@@ -35,7 +35,7 @@ jobs:
 
           gcloud compute instances create "$INSTANCE" \
             --zone="$ZONE" \
-            --source-instance-template=train-instance-template \
+            --source-instance-template=train-gpu-template \
             --metadata=startup-script="#!/usr/bin/env bash
           set -euo pipefail
 
