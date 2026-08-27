@@ -45,7 +45,6 @@ jobs:
           fi
 
           systemctl enable --now docker
-
           mkdir -p ~/actions-runner && cd ~/actions-runner && curl -L -o runner.tgz https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz && tar xzf runner.tgz && ./config.sh --url https://github.com/${{ github.repository }} --token $TOKEN --labels $LABEL --unattended --replace --ephemeral && ./run.sh
 
   training:
