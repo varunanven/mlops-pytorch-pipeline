@@ -8,11 +8,12 @@ on:
 env:
   ZONE: us-central1-a
   INSTANCE: train-instance-2
-  LABEL: ga-spot-${{ github.run_id }}
+  RUNNER_LABEL: ga-gpu-runner
 
 jobs:
   setup:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v5
 
@@ -22,103 +23,124 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: provision gpu runner
+      - name: Verify existing GPU instance
         run: |
-          set -e
-
-          TOKEN=$(curl -sX POST \
-            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://github.com{{ github.repository }}/actions/runners/registration-token \
-            | jq -r .token)
-          test "$TOKEN" != null
-
-          # Export variables to the environment
-          export GG_TOKEN="$TOKEN"
-          export GG_LABEL="$LABEL"
-          export GG_REPO="https://github.com{{ github.repository }}"
-
-          # Use --send-env-as-ssh-info to pass local environment variables through gcloud SSH safely
-          gcloud compute ssh "$INSTANCE" \
-            --zone="$ZONE" \
-            --send-env-as-ssh-info \
-            --command='
           set -euo pipefail
 
-          # 1. Install Docker if missing
-          if ! command -v docker >/dev/null 2>&1; then
-              echo "Installing Docker..."
-              sudo apt-get update
-              sudo apt-get install -y docker.io
+          STATUS=$(gcloud compute instances describe "$INSTANCE" \
+            --zone="$ZONE" \
+            --format='value(status)')
+
+          echo "Instance status: $STATUS"
+
+          if [ "$STATUS" != "RUNNING" ]; then
+            echo "ERROR: Instance $INSTANCE is not running."
+            exit 1
           fi
 
-          # 2. Fix interactive auth by using explicit sudo
-          echo "Starting Docker service..."
-          sudo systemctl unmask docker.service
-          sudo systemctl unmask docker.socket
-          sudo systemctl enable --now docker.service
+      - name: Get GitHub runner registration token
+        id: runner-token
+        run: |
+          set -euo pipefail
 
-          # 3. Add ubuntu user to docker group
-          if id "ubuntu" &>/dev/null; then
-              sudo usermod -aG docker ubuntu
-          fi
+          TOKEN=$(curl -fsSL -X POST \
+            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token \
+            | jq -r .token)
 
-          # 4. Configure and run GitHub Actions Runner as the ubuntu user
-          echo "Setting up GitHub Actions Runner..."
-          
-          # Pass the variables into the sudo environment cleanly using -E
-          sudo -E su -p - ubuntu -c "
+          test -n "$TOKEN"
+          test "$TOKEN" != "null"
+
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Configure existing VM as GitHub Actions runner
+        run: |
+          set -euo pipefail
+
+          gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --command="
               set -euo pipefail
-              mkdir -p ~/actions-runner && cd ~/actions-runner
-              
-              # Download runner package if not present
-              if [ ! -f runner.tgz ]; then
-                  curl -L -o runner.tgz https://github.com
-                  tar xzf runner.tgz
+
+              if ! command -v docker >/dev/null 2>&1; then
+                sudo apt-get update
+                sudo apt-get install -y docker.io
               fi
 
-              # Explicitly install lsb-release & libicu packages first 
-              echo ''Pre-installing lsb-release and libicu to prevent dependency failures...''
-              sudo apt-get update
-              sudo apt-get install -y lsb-release libicu-dev
+              sudo systemctl enable --now docker
 
-              # Run the official dependency installer
-              echo ''Running internal dependency installer...''
-              sudo ./bin/installdependencies.sh
+              sudo usermod -aG docker ubuntu || true
 
-              # Configure the runner using the safely carried environment variables
-              ./config.sh --url \"\$GG_REPO\" \
-                          --token \"\$GG_TOKEN\" \
-                          --labels \"\$GG_LABEL\" \
-                          --unattended --replace --ephemeral
+              sudo -u ubuntu mkdir -p /home/ubuntu/actions-runner
+              cd /home/ubuntu/actions-runner
 
-              # Start runner safely in the background
-              echo ''Starting runner in background...''
-              nohup ./run.sh > runner.log 2>&1 &
-              sleep 2
+              if [ ! -f ./run.sh ]; then
+                curl -L -o runner.tgz \
+                  https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
+
+                tar xzf runner.tgz
+                rm -f runner.tgz
+              fi
+
+              ./config.sh \
+                --url https://github.com/${{ github.repository }} \
+                --token '${{ steps.runner-token.outputs.token }}' \
+                --labels '${{ env.RUNNER_LABEL }}' \
+                --unattended \
+                --replace \
+                --ephemeral
             "
-          '
 
+      - name: Start GitHub Actions runner
+        run: |
+          set -euo pipefail
+
+          gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --command="
+              cd /home/ubuntu/actions-runner
+              sudo -u ubuntu ./run.sh
+            "
 
   training:
     needs: setup
-    runs-on: [self-hosted, "ga-spot-${{ github.run_id }}"]
+
+    runs-on: [self-hosted, ga-gpu-runner]
+
     steps:
       - uses: actions/checkout@v5
 
-      - name: train model
+      - name: Train model
         run: |
-          docker build -f docker/Dockerfile.train -t mlops-train .
-          docker create --name mlops-train-run mlops-train
+          docker build \
+            -f docker/Dockerfile.train \
+            -t mlops-train .
+
+          docker create \
+            --name mlops-train-run \
+            mlops-train
+
           docker start -a mlops-train-run
-          docker cp mlops-train-run:/app/checkpoints/cifar10_model.pt cifar10_model.pt
+
+          docker cp \
+            mlops-train-run:/app/checkpoints/cifar10_model.pt \
+            cifar10_model.pt
+
           docker rm mlops-train-run
 
-      - name: serve model
+      - name: Serve model
         run: |
-          docker build -f docker/Dockerfile.serve -t mlops-serve .
-          docker create --name mlops-serve-run mlops-serve
+          docker build \
+            -f docker/Dockerfile.serve \
+            -t mlops-serve .
+
+          docker create \
+            --name mlops-serve-run \
+            mlops-serve
+
           docker start -a mlops-serve-run
+
 
   # cleanup:
   #   needs: [setup, training]
