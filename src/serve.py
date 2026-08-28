@@ -1,9 +1,16 @@
 import io
+import yaml
+from pathlib import Path
 import torch
 import torchvision.transforms as transforms
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from PIL import Image
+from model import get_model
 
+
+def load_config(config_path: str) -> dict:
+    with open(config_path) as f:
+        return yaml.safe_load(f)
 
 app = FastAPI()
 CLASSES = [
@@ -20,9 +27,22 @@ transform = transforms.Compose([
     )
 ])
 
+config_path = Path("/app/configs/training_config.yaml")
+if not config_path.exists():
+    config_path = Path("configs/training_config.yaml")
+config = load_config(str(config_path))
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = get_model(
+        architecture=config["model"]["architecture"],
+        num_classes=config["data"]["num_classes"],
+    ).to(device)
+
 MODEL_PATH = "/app/checkpoints/cifar10_model.pt"
 try:
-    model = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+    state_dict = torch.load(MODEL_PATH, map_location=torch.device(device))
+    model.load_state_dict(state_dict)
     model.eval()
 except Exception as e:
     print(f"Error loading model: {e}")

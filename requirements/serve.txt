@@ -2,7 +2,6 @@ fastapi
 uvicorn
 Pillow
 python-multipart
-
---extra-index-url https://download.pytorch.org/whl/cpu
+PyYAML
 torch
 torchvision
