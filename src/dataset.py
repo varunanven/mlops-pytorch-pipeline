@@ -29,7 +29,7 @@ def get_dataloaders(
 ) -> tuple[DataLoader, DataLoader]:
     train_dataset = datasets.CIFAR10(
         root=data_dir,
-        train=True,
+        train=False,
         download=True,
         transform=get_transforms(train=True),
     )
