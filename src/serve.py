@@ -20,7 +20,7 @@ transform = transforms.Compose([
     )
 ])
 
-MODEL_PATH = "/app/cifar10_model.pt"
+MODEL_PATH = "/app/checkpoints/cifar10_model.pt"
 try:
     model = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
     model.eval()
