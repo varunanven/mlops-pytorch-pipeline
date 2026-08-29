@@ -41,8 +41,8 @@ model = get_model(
 
 MODEL_PATH = "/app/checkpoints/cifar10_model.pt"
 try:
-    state_dict = torch.load(MODEL_PATH, map_location=torch.device(device))
-    model.load_state_dict(state_dict)
+    model_dict = torch.load(MODEL_PATH, map_location=torch.device(device))
+    model.load_state_dict(model_dict['model_state_dict'])
     model.eval()
 except Exception as e:
     print(f"Error loading model: {e}")
