@@ -58,7 +58,7 @@ def health_check():
 @app.post("/predict")
 async def predict(image: UploadFile = File(...)):
     if not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+        raise HTTPException(status_code=400, detail="file must be an image")
     
     try:
         image_bytes = await image.read()
@@ -71,7 +71,7 @@ async def predict(image: UploadFile = File(...)):
             predicted_class = CLASSES[predicted_idx.item()]
             
         return {
-            "filename": file.filename,
+            "filename": image.filename,
             "prediction": predicted_class,
             "class_index": predicted_idx.item()
         }
