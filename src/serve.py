@@ -5,7 +5,7 @@ import torch
 import torchvision.transforms as transforms
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from PIL import Image
-from model import get_model
+from src.model import get_model
 
 
 def load_config(config_path: str) -> dict:
