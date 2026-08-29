@@ -61,9 +61,9 @@ async def predict(image: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="file must be an image")
     
     try:
-        image_bytes = await image.read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        input_tensor = transform(image).unsqueeze(0)
+        image_bytes = await image.read() 
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        input_tensor = transform(img).unsqueeze(0)
         
         with torch.no_grad():
             outputs = model(input_tensor)
