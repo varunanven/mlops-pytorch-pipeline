@@ -56,12 +56,12 @@ def health_check():
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    if not file.content_type.startswith("image/"):
+async def predict(image: UploadFile = File(...)):
+    if not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
-        
+    
     try:
-        image_bytes = await file.read()
+        image_bytes = await image.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         input_tensor = transform(image).unsqueeze(0)
         
