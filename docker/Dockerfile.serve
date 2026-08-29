@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r serve.txt
 
 COPY src/ /app/src/
 COPY configs/ /app/configs/
+COPY test_image.png .
 
 EXPOSE 8080
 
