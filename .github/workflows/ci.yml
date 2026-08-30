@@ -6,7 +6,7 @@ on:
       - develop
 
 jobs:
-  training:
+  train_serve:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,39 +20,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker build \
-            -f docker/Dockerfile.train \
-            -t mlops-train .
+          docker build -f docker/Dockerfile.train -t mlops-train:v1 .
 
-          docker create \
-            --name mlops-train-run \
-            mlops-train
-
-          docker start -a mlops-train-run
-
-          docker cp \
-            mlops-train-run:/app/checkpoints/cifar10_model.pt \
-            cifar10_model.pt
-
-          docker rm mlops-train-run
-
-      - name: Upload trained model
-        uses: actions/upload-artifact@v4
-        with:
-          name: cifar10-model
-          path: cifar10_model.pt
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/checkpoints:/app/checkpoints \
+            mlops-train:v1
 
       - name: Serve model
         run: |
           set -euo pipefail
 
-          docker build \
-            -f docker/Dockerfile.serve \
-            -t mlops-serve .
+          docker build -f docker/Dockerfile.serve -t mlops-serve:v1 .
 
-          docker run -d \
-            --name mlops-serve-run \
-            mlops-serve
+          docker run -d -p 8080:8080 \
+            -v $(pwd)/checkpoints:/app/checkpoints \
+            mlops-serve:v1
+            
+          echo "Waiting for API to respond..."
+          until curl -s http://localhost:8080/health > /dev/null || curl -s http://localhost:8080/ > /dev/null; do
+            sleep 1
+          done
+          echo "Server is up!"
 
-          docker ps \
-            --filter name=mlops-serve-run
+      - name: Inference
+        run: |
+          set -euo pipefail
+          
+          curl -X POST http://localhost:8080/predict \
+            -F "image=@test_image.png"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f my-ml-server:v1 || true
+        
+
